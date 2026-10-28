@@ -1,0 +1,38 @@
+version: '3.8'
+
+services:
+  backend:
+    build: .
+    container_name: smartschedule-backend
+    restart: always
+    environment:
+      - DATABASE_URL=postgresql://smartschedule:secretpass@db:5432/smartscheduledb
+      - SMARTSCHEDULE_API_KEY=local-demo-key
+      - JWT_SECRET_KEY=production-secure-random-token-change-in-prod
+      - SMTP_ENABLED=false
+    ports:
+      - "8000:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+
+  db:
+    image: postgres:16-alpine
+    container_name: smartschedule-postgres
+    restart: always
+    environment:
+      - POSTGRES_USER=smartschedule
+      - POSTGRES_PASSWORD=secretpass
+      - POSTGRES_DB=smartscheduledb
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U smartschedule -d smartscheduledb"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  postgres_data:
