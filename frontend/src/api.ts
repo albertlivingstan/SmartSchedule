@@ -47,15 +47,25 @@ async function request<T>(endpoint: string, options: RequestInit = {}): Promise<
 
   if (!response.ok) {
     let errorDetail = `HTTP ${response.status}: ${response.statusText}`;
+    let parsedData: any = null;
     try {
-      const errJson = await response.json();
-      if (errJson && errJson.detail) {
-        errorDetail = typeof errJson.detail === 'string' ? errJson.detail : JSON.stringify(errJson.detail);
+      parsedData = await response.json();
+      if (parsedData && parsedData.detail) {
+        if (typeof parsedData.detail === 'string') {
+          errorDetail = parsedData.detail;
+        } else if (parsedData.detail.detail) {
+          errorDetail = parsedData.detail.detail;
+        } else {
+          errorDetail = JSON.stringify(parsedData.detail);
+        }
       }
     } catch {
       // ignore
     }
-    throw new Error(errorDetail);
+    const err: any = new Error(errorDetail);
+    err.status = response.status;
+    err.data = parsedData;
+    throw err;
   }
 
   // Handle CSV or non-JSON
@@ -135,6 +145,51 @@ export const api = {
     body: JSON.stringify({ sample_size: sampleSize, seed })
   }),
   getLatestResearch: () => request<ResearchResults>('/api/research/latest'),
+
+  // Conflict Resolution & Concurrency Approvals
+  getSlotAvailability: (service: string, staff = 'Any', date?: string) => {
+    const sp = new URLSearchParams({ service, staff });
+    if (date) sp.append('date', date);
+    return request<any[]>(`/api/appointments/availability?${sp.toString()}`);
+  },
+  getSlotAlternatives: (staff: string, service: string, starts_at: string, duration_minutes = 30) => {
+    const sp = new URLSearchParams({ staff, service, starts_at, duration_minutes: String(duration_minutes) });
+    return request<any[]>(`/api/appointments/alternatives?${sp.toString()}`);
+  },
+  submitRescheduling: (payload: {
+    conflict_id?: string;
+    client_name: string;
+    client_email: string;
+    service: string;
+    staff: string;
+    requested_starts_at: string;
+    original_starts_at?: string;
+    duration_minutes?: number;
+    user_consent: boolean;
+    notes?: string;
+    original_appointment_id?: number;
+  }) => request<any>('/api/rescheduling/request', {
+    method: 'POST',
+    body: JSON.stringify(payload)
+  }),
+  approveRescheduling: (requestId: string, payload?: { approver_id?: string; approver_notes?: string }) =>
+    request<any>(`/api/rescheduling/${requestId}/approve`, {
+      method: 'POST',
+      body: JSON.stringify(payload || {})
+    }),
+  rejectRescheduling: (requestId: string, payload?: { approver_id?: string; rejection_reason?: string }) =>
+    request<any>(`/api/rescheduling/${requestId}/reject`, {
+      method: 'POST',
+      body: JSON.stringify(payload || {})
+    }),
+  getReschedulingStatus: (requestId: string) => request<any>(`/api/rescheduling/${requestId}/status`),
+  getBookingConflicts: (status?: string, q?: string) => {
+    const sp = new URLSearchParams();
+    if (status && status !== 'all') sp.append('status', status);
+    if (q) sp.append('q', q);
+    return request<{ conflicts: any[]; rescheduling_requests: any[]; audit_logs: any[] }>(`/api/admin/booking-conflicts?${sp.toString()}`);
+  },
+  getConflictStats: () => request<any>('/api/conflicts/stats'),
 
   // System
   seedDemoData: (force = true) => request<any>(`/api/system/seed-demo?force=${force}`, { method: 'POST' })

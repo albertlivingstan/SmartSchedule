@@ -111,3 +111,29 @@ class UiPathService:
         self.db.add(new_rec)
         self.db.commit()
         return new_rec
+
+    # --- Conflict Resolution & Rescheduling Event Triggers ---
+    def trigger_conflict_detected(self, conflict_data: Dict[str, Any]) -> Dict[str, Any]:
+        return self.dispatch_webhook_event("ConflictDetected", conflict_data)
+
+    def trigger_alternative_slots_generated(self, data: Dict[str, Any]) -> Dict[str, Any]:
+        return self.dispatch_webhook_event("AlternativeSlotsGenerated", data)
+
+    def trigger_rescheduling_requested(self, data: Dict[str, Any]) -> Dict[str, Any]:
+        return self.dispatch_webhook_event("ReschedulingApprovalRequested", data)
+
+    def trigger_admin_approval_required(self, data: Dict[str, Any]) -> Dict[str, Any]:
+        return self.dispatch_webhook_event("AdminApprovalRequired", data)
+
+    def trigger_rescheduling_approved(self, data: Dict[str, Any]) -> Dict[str, Any]:
+        return self.dispatch_webhook_event("ReschedulingApproved", data)
+
+    def trigger_rescheduling_rejected(self, data: Dict[str, Any]) -> Dict[str, Any]:
+        return self.dispatch_webhook_event("ReschedulingRejected", data)
+
+    def trigger_booking_confirmed(self, data: Dict[str, Any], appointment_id: Optional[int] = None) -> Dict[str, Any]:
+        return self.dispatch_webhook_event("BookingConfirmed", data, appointment_id=appointment_id)
+
+    def trigger_booking_cancelled(self, data: Dict[str, Any], appointment_id: Optional[int] = None) -> Dict[str, Any]:
+        return self.dispatch_webhook_event("BookingCancelled", data, appointment_id=appointment_id)
+

@@ -12,6 +12,7 @@ interface SidebarProps {
   setCollapsed: (collapsed: boolean) => void;
   waitingCount: number;
   outboxCount: number;
+  pendingConflictCount?: number;
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({
@@ -20,13 +21,15 @@ export const Sidebar: React.FC<SidebarProps> = ({
   collapsed,
   setCollapsed,
   waitingCount,
-  outboxCount
+  outboxCount,
+  pendingConflictCount = 0
 }) => {
   const navItems = [
     { id: 'overview', label: 'Overview', icon: LayoutDashboard },
     { id: 'calendar', label: 'Smart Calendar', icon: Calendar },
     { id: 'appointments', label: 'Appointments', icon: CalendarCheck2 },
     { id: 'ai-scheduling', label: 'AI Scheduling', icon: Sparkles, badge: 'Smart' },
+    { id: 'conflicts', label: 'Conflict Approvals', icon: ShieldAlert, badge: pendingConflictCount > 0 ? String(pendingConflictCount) : 'Guard', highlight: pendingConflictCount > 0 },
     { id: 'recovery', label: 'Cancellation Recovery', icon: RefreshCw, highlight: true },
     { id: 'waiting-list', label: 'Waiting List', icon: Users, count: waitingCount },
     { id: 'automation', label: 'Automation Center', icon: Bot, badge: 'UiPath' },

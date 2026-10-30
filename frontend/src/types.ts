@@ -152,3 +152,99 @@ export interface ResearchResults {
   };
   research_findings: string[];
 }
+
+export interface AlternativeSlot {
+  starts_at: string;
+  ends_at: string;
+  staff: string;
+  service: string;
+  score: number;
+  time_display: string;
+  date_display: string;
+  reason: string;
+}
+
+export interface ConflictData {
+  conflict_id: string;
+  booking_reference: string;
+  requested_date: string;
+  requested_time: string;
+  requested_starts_at: string;
+  requested_ends_at: string;
+  staff: string;
+  service: string;
+  duration_minutes: number;
+  alternatives: AlternativeSlot[];
+  detail?: string;
+}
+
+export interface BookingConflictItem {
+  id: number;
+  conflict_id: string;
+  booking_reference?: string;
+  client_name: string;
+  client_email: string;
+  service: string;
+  staff: string;
+  requested_starts_at: string;
+  requested_ends_at: string;
+  duration_minutes: number;
+  conflict_reason: string;
+  status: 'CONFLICT_DETECTED' | 'ALTERNATIVES_OFFERED' | 'AWAITING_USER_APPROVAL' | 'AWAITING_ADMIN_APPROVAL' | 'APPROVED' | 'REJECTED' | 'EXPIRED' | 'RESOLVED';
+  alternatives: AlternativeSlot[];
+  resolution_notes?: string;
+  created_at: string;
+  resolved_at?: string;
+}
+
+export interface ReschedulingRequestItem {
+  id: number;
+  request_id: string;
+  conflict_id?: string;
+  booking_reference?: string;
+  original_appointment_id?: number;
+  new_appointment_id?: number;
+  client_name: string;
+  client_email: string;
+  service: string;
+  staff: string;
+  original_starts_at: string;
+  requested_starts_at: string;
+  requested_ends_at: string;
+  duration_minutes: number;
+  approval_type: 'customer_approval' | 'admin_approval';
+  status: 'CONFLICT_DETECTED' | 'ALTERNATIVES_OFFERED' | 'AWAITING_USER_APPROVAL' | 'AWAITING_ADMIN_APPROVAL' | 'APPROVED' | 'REJECTED' | 'EXPIRED' | 'RESOLVED';
+  user_consent: boolean;
+  consent_timestamp?: string;
+  approver_id?: string;
+  approver_notes?: string;
+  hold_token?: string;
+  expires_at?: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface BookingAuditLogItem {
+  id: number;
+  conflict_id?: string;
+  rescheduling_id?: string;
+  appointment_id?: number;
+  event_type: string;
+  actor: string;
+  details: Record<string, any>;
+  created_at: string;
+}
+
+export interface ConflictStats {
+  total_conflicts: number;
+  conflicts_prevented: number;
+  total_rescheduling_requests: number;
+  approved_requests: number;
+  rejected_requests: number;
+  awaiting_admin_approval: number;
+  approval_rate: number;
+  conflict_resolution_success_rate: number;
+  recovered_appointment_slots: number;
+  average_resolution_time_minutes: number;
+}
+

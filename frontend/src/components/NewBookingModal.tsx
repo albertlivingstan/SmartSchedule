@@ -8,6 +8,7 @@ interface NewBookingModalProps {
   onSuccess: () => void;
   showToast: (msg: string, type?: 'success' | 'error' | 'info') => void;
   initialSlot?: any;
+  onConflictDetected?: (conflictData: any) => void;
 }
 
 export const NewBookingModal: React.FC<NewBookingModalProps> = ({
@@ -15,7 +16,8 @@ export const NewBookingModal: React.FC<NewBookingModalProps> = ({
   onClose,
   onSuccess,
   showToast,
-  initialSlot
+  initialSlot,
+  onConflictDetected
 }) => {
   const [client, setClient] = useState('');
   const [email, setEmail] = useState('');
@@ -86,6 +88,17 @@ export const NewBookingModal: React.FC<NewBookingModalProps> = ({
       onSuccess();
       onClose();
     } catch (err: any) {
+      if (err.status === 409 && onConflictDetected && err.data?.detail && typeof err.data.detail === 'object') {
+        onConflictDetected({
+          ...err.data.detail,
+          client_name: client.trim(),
+          client_email: email.trim(),
+          service,
+          staff
+        });
+        onClose();
+        return;
+      }
       showToast(`Booking conflict or error: ${err.message}`, "error");
     } finally {
       setSubmitting(false);

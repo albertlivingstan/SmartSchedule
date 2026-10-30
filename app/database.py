@@ -85,6 +85,7 @@ def migrate_existing_tables():
         if "appointments" in existing_tables:
             columns = [c["name"] for c in inspector.get_columns("appointments")]
             new_cols = [
+                ("booking_reference", "VARCHAR(120)"),
                 ("user_id", "INTEGER"),
                 ("risk_score", "FLOAT DEFAULT 0.0"),
                 ("risk_tier", "VARCHAR(20) DEFAULT 'Low'"),
@@ -98,6 +99,15 @@ def migrate_existing_tables():
                         connection.commit()
                     except Exception:
                         pass
+
+        if "services" in existing_tables:
+            columns = [c["name"] for c in inspector.get_columns("services")]
+            if "requires_admin_approval" not in columns:
+                try:
+                    connection.execute(text("ALTER TABLE services ADD COLUMN requires_admin_approval BOOLEAN DEFAULT FALSE"))
+                    connection.commit()
+                except Exception:
+                    pass
 
 def seed_defaults():
     """Seed initial staff, services, and default admin if they don't exist."""
@@ -166,26 +176,31 @@ def seed_defaults():
                 )
                 db.add(st)
 
-        # Initial Services
+        # Initial Services (with approval requirements)
         default_services = [
-            ("Consultation", 30, 10, "Initial general advising consultation", 1.0),
-            ("Academic Advising", 45, 15, "Curriculum, credit check and graduation planning", 1.2),
-            ("Support Session", 30, 10, "Student guidance and counseling support", 1.0),
-            ("Document Verification", 15, 5, "Official degree and identity record verification", 0.8),
-            ("Career Mentorship", 60, 15, "Resume critique and interview preparation", 1.3),
-            ("Financial Aid Advising", 45, 10, "Grants, scholarship, and student aid assistance", 1.1)
+            ("Consultation", 30, 10, "Initial general advising consultation", 1.0, False),
+            ("Academic Advising", 45, 15, "Curriculum, credit check and graduation planning", 1.2, False),
+            ("Support Session", 30, 10, "Student guidance and counseling support", 1.0, False),
+            ("Document Verification", 15, 5, "Official degree and identity record verification", 0.8, False),
+            ("Career Mentorship", 60, 15, "Resume critique and interview preparation", 1.3, False),
+            ("Financial Aid Advising", 45, 10, "Grants, scholarship, and student aid assistance", 1.1, True),
+            ("Thesis Defense Prep", 60, 15, "Graduate thesis defense readiness evaluation (Admin Approval Required)", 1.5, True)
         ]
-        for name, dur, buf, desc, weight in default_services:
-            if not db.query(Service).filter_by(name=name).first():
+        for name, dur, buf, desc, weight, req_admin in default_services:
+            srv = db.query(Service).filter_by(name=name).first()
+            if not srv:
                 srv = Service(
                     name=name,
                     duration_minutes=dur,
                     buffer_minutes=buf,
                     description=desc,
                     priority_weight=weight,
+                    requires_admin_approval=req_admin,
                     is_active=True
                 )
                 db.add(srv)
+            else:
+                srv.requires_admin_approval = req_admin
 
         db.commit()
     except Exception as e:

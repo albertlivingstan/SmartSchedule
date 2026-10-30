@@ -12,9 +12,11 @@ import { NotificationsView } from './components/NotificationsView';
 import { AnalyticsView } from './components/AnalyticsView';
 import { ResearchEvaluationView } from './components/ResearchEvaluationView';
 import { SettingsView } from './components/SettingsView';
+import { ConflictResolutionView } from './components/ConflictResolutionView';
+import { ConflictWarningModal } from './components/ConflictWarningModal';
 import { NewBookingModal } from './components/NewBookingModal';
 import { AppointmentDetailModal } from './components/AppointmentDetailModal';
-import { Appointment, StatsResponse, RecommendedSlot } from './types';
+import { Appointment, StatsResponse, RecommendedSlot, ConflictData } from './types';
 import { api } from './api';
 
 export function App() {
@@ -25,11 +27,14 @@ export function App() {
   const [appointments, setAppointments] = useState<Appointment[]>([]);
   const [waitingCount, setWaitingCount] = useState(0);
   const [outboxCount, setOutboxCount] = useState(0);
+  const [pendingConflictCount, setPendingConflictCount] = useState(0);
 
   // Modals state
   const [isNewBookingOpen, setIsNewBookingOpen] = useState(false);
   const [selectedSlotForBooking, setSelectedSlotForBooking] = useState<any>(null);
   const [inspectingAppointment, setInspectingAppointment] = useState<Appointment | null>(null);
+  const [isConflictModalOpen, setIsConflictModalOpen] = useState(false);
+  const [activeConflictData, setActiveConflictData] = useState<ConflictData | null>(null);
 
   // Toast state
   const [toast, setToast] = useState<{ msg: string; type: 'success' | 'error' | 'info' } | null>(null);
@@ -43,16 +48,20 @@ export function App() {
 
   const refreshData = async () => {
     try {
-      const [sData, aData, wData, oData] = await Promise.all([
+      const [sData, aData, wData, oData, cStats] = await Promise.all([
         api.getStats().catch(() => null),
         api.getAppointments().catch(() => []),
         api.getWaitingList('waiting').catch(() => []),
-        api.getOutbox().catch(() => [])
+        api.getOutbox().catch(() => []),
+        api.getConflictStats().catch(() => null)
       ]);
       if (sData) setStats(sData);
       setAppointments(aData);
       setWaitingCount(wData.length);
       setOutboxCount(oData.filter((i: any) => i.status === 'pending').length);
+      if (cStats) {
+        setPendingConflictCount(cStats.awaiting_admin_approval || 0);
+      }
     } catch (err: any) {
       console.error("Refresh error:", err);
     }
@@ -60,6 +69,21 @@ export function App() {
 
   useEffect(() => {
     refreshData();
+
+    // Real-time Server-Sent Events stream
+    let es: EventSource | null = null;
+    try {
+      es = new EventSource('/api/realtime/events');
+      es.addEventListener('slot_booked', () => refreshData());
+      es.addEventListener('rescheduling_updated', () => refreshData());
+      es.addEventListener('conflict_detected', () => refreshData());
+    } catch (err) {
+      console.log("SSE not supported, fallback to periodic polling");
+    }
+
+    return () => {
+      if (es) es.close();
+    };
   }, []);
 
   const handleBookFromSlot = (slot: RecommendedSlot) => {
@@ -92,6 +116,7 @@ export function App() {
         setCollapsed={setSidebarCollapsed}
         waitingCount={waitingCount}
         outboxCount={outboxCount}
+        pendingConflictCount={pendingConflictCount}
       />
 
       {/* Main Content Area */}
@@ -140,6 +165,13 @@ export function App() {
             <AISchedulingView
               onBookSlot={handleBookFromSlot}
               showToast={showToast}
+            />
+          )}
+
+          {currentTab === 'conflicts' && (
+            <ConflictResolutionView
+              showToast={showToast}
+              onRefreshData={refreshData}
             />
           )}
 
@@ -199,6 +231,46 @@ export function App() {
         onSuccess={refreshData}
         showToast={showToast}
         initialSlot={selectedSlotForBooking}
+        onConflictDetected={(conflict) => {
+          setActiveConflictData(conflict);
+          setIsConflictModalOpen(true);
+        }}
+      />
+
+      <ConflictWarningModal
+        isOpen={isConflictModalOpen}
+        conflictData={activeConflictData}
+        onClose={() => {
+          setIsConflictModalOpen(false);
+          setActiveConflictData(null);
+        }}
+        onResolved={(newAppt) => {
+          refreshData();
+          if (newAppt) {
+            setInspectingAppointment(newAppt);
+          }
+        }}
+        onJoinWaitingList={async (client, email, service, staff) => {
+          try {
+            const nowIso = new Date().toISOString();
+            const nextWeek = new Date(Date.now() + 7 * 86400000).toISOString();
+            await api.addToWaitingList({
+              client,
+              email,
+              service,
+              staff_preference: staff,
+              preferred_start: nowIso,
+              preferred_end: nextWeek,
+              urgency_score: 3.5,
+              notes: "Auto-enrolled via conflict modal"
+            });
+            showToast("Enrolled in Priority Waiting List! You will be automatically notified when a slot opens.", "success");
+            refreshData();
+          } catch (err: any) {
+            showToast(`Waiting list error: ${err.message}`, "error");
+          }
+        }}
+        showToast={showToast}
       />
 
       <AppointmentDetailModal

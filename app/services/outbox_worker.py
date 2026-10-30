@@ -128,3 +128,17 @@ def run_worker_tick():
         return {"outbox": outbox_count, "reminders": reminder_count}
     finally:
         db.close()
+
+if __name__ == '__main__':
+    import argparse
+    parser = argparse.ArgumentParser(description="SmartSchedule Outbox & Reminder Worker")
+    parser.add_argument('--loop', action='store_true', help="Run worker periodically in an infinite loop")
+    parser.add_argument('--once', action='store_true', help="Run a single tick and exit")
+    args = parser.parse_args()
+    while True:
+        res = run_worker_tick()
+        if not args.loop:
+            print("Worker tick result:", res)
+            break
+        time.sleep(30)
+

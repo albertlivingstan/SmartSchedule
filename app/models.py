@@ -63,6 +63,7 @@ class Service(Base):
     buffer_minutes = Column(Integer, default=10)
     description = Column(Text, default='')
     priority_weight = Column(Float, default=1.0)
+    requires_admin_approval = Column(Boolean, default=False)
     is_active = Column(Boolean, default=True)
 
     def to_dict(self):
@@ -73,6 +74,7 @@ class Service(Base):
             'buffer_minutes': self.buffer_minutes,
             'description': self.description,
             'priority_weight': self.priority_weight,
+            'requires_admin_approval': bool(self.requires_admin_approval),
             'is_active': self.is_active
         }
 
@@ -104,6 +106,7 @@ class Appointment(Base):
     external_id = Column(String(120), unique=True, nullable=True)
     
     # Extended fields for SmartSchedule AI 3.0
+    booking_reference = Column(String(120), nullable=True, index=True)
     user_id = Column(Integer, ForeignKey('users.id'), nullable=True)
     risk_score = Column(Float, default=0.0)
     risk_tier = Column(String(20), default='Low')  # Low, Medium, High
@@ -133,6 +136,7 @@ class Appointment(Base):
             'updated_at': self.updated_at,
             'source': self.source,
             'external_id': self.external_id,
+            'booking_reference': self.booking_reference,
             'risk_score': self.risk_score or 0.0,
             'risk_tier': self.risk_tier or 'Low',
             'risk_factors': factors,
@@ -425,3 +429,211 @@ class EvaluationRun(Base):
             'metrics': m,
             'created_at': self.created_at
         }
+
+
+class AppointmentSlot(Base):
+    __tablename__ = 'appointment_slots'
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    staff = Column(String(120), nullable=False, index=True)
+    service = Column(String(120), nullable=False)
+    starts_at = Column(String(40), nullable=False, index=True)  # UTC ISO-8601
+    ends_at = Column(String(40), nullable=False)
+    capacity = Column(Integer, default=1, nullable=False)
+    booked_count = Column(Integer, default=0, nullable=False)
+    is_locked = Column(Boolean, default=False)
+    version = Column(Integer, default=1, nullable=False)
+    created_at = Column(String(40), default=utcnow_str)
+    updated_at = Column(String(40), default=utcnow_str)
+
+    __table_args__ = (
+        UniqueConstraint('staff', 'starts_at', name='uq_slot_staff_start'),
+    )
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'staff': self.staff,
+            'service': self.service,
+            'starts_at': self.starts_at,
+            'ends_at': self.ends_at,
+            'capacity': self.capacity,
+            'booked_count': self.booked_count,
+            'available_capacity': max(0, self.capacity - self.booked_count),
+            'is_locked': self.is_locked,
+            'version': self.version,
+            'created_at': self.created_at,
+            'updated_at': self.updated_at
+        }
+
+
+class BookingConflict(Base):
+    __tablename__ = 'booking_conflicts'
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    conflict_id = Column(String(80), unique=True, nullable=False, index=True)
+    booking_reference = Column(String(120), nullable=True, index=True)
+    client_name = Column(String(120), nullable=False)
+    client_email = Column(String(254), nullable=False, index=True)
+    service = Column(String(120), nullable=False)
+    staff = Column(String(120), nullable=False)
+    requested_starts_at = Column(String(40), nullable=False)
+    requested_ends_at = Column(String(40), nullable=False)
+    duration_minutes = Column(Integer, default=30)
+    conflict_reason = Column(Text, default="This appointment slot is already fully booked. Please select another available time.")
+    status = Column(String(40), default='CONFLICT_DETECTED', index=True)
+    # CONFLICT_DETECTED, ALTERNATIVES_OFFERED, AWAITING_USER_APPROVAL, AWAITING_ADMIN_APPROVAL, APPROVED, REJECTED, EXPIRED, RESOLVED
+    alternatives_json = Column(Text, default='[]')
+    resolution_notes = Column(Text, default='')
+    idempotency_key = Column(String(120), unique=True, nullable=True)
+    created_at = Column(String(40), default=utcnow_str)
+    resolved_at = Column(String(40), nullable=True)
+
+    def to_dict(self):
+        alts = []
+        if self.alternatives_json:
+            try:
+                alts = json.loads(self.alternatives_json)
+            except Exception:
+                alts = []
+        return {
+            'id': self.id,
+            'conflict_id': self.conflict_id,
+            'booking_reference': self.booking_reference,
+            'client_name': self.client_name,
+            'client_email': self.client_email,
+            'service': self.service,
+            'staff': self.staff,
+            'requested_starts_at': self.requested_starts_at,
+            'requested_ends_at': self.requested_ends_at,
+            'duration_minutes': self.duration_minutes,
+            'conflict_reason': self.conflict_reason,
+            'status': self.status,
+            'alternatives': alts,
+            'resolution_notes': self.resolution_notes,
+            'idempotency_key': self.idempotency_key,
+            'created_at': self.created_at,
+            'resolved_at': self.resolved_at
+        }
+
+
+class ReschedulingRequest(Base):
+    __tablename__ = 'rescheduling_requests'
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    request_id = Column(String(80), unique=True, nullable=False, index=True)
+    conflict_id = Column(String(80), nullable=True, index=True)
+    booking_reference = Column(String(120), nullable=True, index=True)
+    original_appointment_id = Column(Integer, ForeignKey('appointments.id'), nullable=True)
+    new_appointment_id = Column(Integer, ForeignKey('appointments.id'), nullable=True)
+    client_name = Column(String(120), nullable=False)
+    client_email = Column(String(254), nullable=False, index=True)
+    service = Column(String(120), nullable=False)
+    staff = Column(String(120), nullable=False)
+    original_starts_at = Column(String(40), nullable=False)
+    requested_starts_at = Column(String(40), nullable=False)
+    requested_ends_at = Column(String(40), nullable=False)
+    duration_minutes = Column(Integer, default=30)
+    approval_type = Column(String(30), default='customer_approval')  # 'customer_approval' or 'admin_approval'
+    status = Column(String(40), default='AWAITING_USER_APPROVAL', index=True)
+    # CONFLICT_DETECTED, ALTERNATIVES_OFFERED, AWAITING_USER_APPROVAL, AWAITING_ADMIN_APPROVAL, APPROVED, REJECTED, EXPIRED, RESOLVED
+    user_consent = Column(Boolean, default=False)
+    consent_timestamp = Column(String(40), nullable=True)
+    approver_id = Column(String(120), nullable=True)
+    approver_notes = Column(Text, default='')
+    hold_token = Column(String(80), nullable=True)
+    expires_at = Column(String(40), nullable=True)
+    idempotency_key = Column(String(120), unique=True, nullable=True)
+    created_at = Column(String(40), default=utcnow_str)
+    updated_at = Column(String(40), default=utcnow_str)
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'request_id': self.request_id,
+            'conflict_id': self.conflict_id,
+            'booking_reference': self.booking_reference,
+            'original_appointment_id': self.original_appointment_id,
+            'new_appointment_id': self.new_appointment_id,
+            'client_name': self.client_name,
+            'client_email': self.client_email,
+            'service': self.service,
+            'staff': self.staff,
+            'original_starts_at': self.original_starts_at,
+            'requested_starts_at': self.requested_starts_at,
+            'requested_ends_at': self.requested_ends_at,
+            'duration_minutes': self.duration_minutes,
+            'approval_type': self.approval_type,
+            'status': self.status,
+            'user_consent': bool(self.user_consent),
+            'consent_timestamp': self.consent_timestamp,
+            'approver_id': self.approver_id,
+            'approver_notes': self.approver_notes,
+            'hold_token': self.hold_token,
+            'expires_at': self.expires_at,
+            'idempotency_key': self.idempotency_key,
+            'created_at': self.created_at,
+            'updated_at': self.updated_at
+        }
+
+
+class BookingHold(Base):
+    __tablename__ = 'booking_holds'
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    hold_token = Column(String(80), unique=True, nullable=False, index=True)
+    staff = Column(String(120), nullable=False)
+    service = Column(String(120), nullable=False)
+    starts_at = Column(String(40), nullable=False)
+    ends_at = Column(String(40), nullable=False)
+    client_email = Column(String(254), nullable=False)
+    expires_at = Column(String(40), nullable=False, index=True)
+    status = Column(String(30), default='active', index=True)  # active, released, converted, expired
+    created_at = Column(String(40), default=utcnow_str)
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'hold_token': self.hold_token,
+            'staff': self.staff,
+            'service': self.service,
+            'starts_at': self.starts_at,
+            'ends_at': self.ends_at,
+            'client_email': self.client_email,
+            'expires_at': self.expires_at,
+            'status': self.status,
+            'created_at': self.created_at
+        }
+
+
+class BookingAuditLog(Base):
+    __tablename__ = 'booking_audit_logs'
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    conflict_id = Column(String(80), nullable=True, index=True)
+    rescheduling_id = Column(String(80), nullable=True, index=True)
+    appointment_id = Column(Integer, nullable=True, index=True)
+    event_type = Column(String(60), nullable=False, index=True)
+    # conflict_detected, alternative_offered, approval_requested, approved, rejected, expired, resolved, double_booking_prevented
+    actor = Column(String(120), default='system')
+    details_json = Column(Text, default='{}')
+    created_at = Column(String(40), default=utcnow_str)
+
+    def to_dict(self):
+        d = {}
+        if self.details_json:
+            try:
+                d = json.loads(self.details_json)
+            except Exception:
+                d = {}
+        return {
+            'id': self.id,
+            'conflict_id': self.conflict_id,
+            'rescheduling_id': self.rescheduling_id,
+            'appointment_id': self.appointment_id,
+            'event_type': self.event_type,
+            'actor': self.actor,
+            'details': d,
+            'created_at': self.created_at
+        }
+
